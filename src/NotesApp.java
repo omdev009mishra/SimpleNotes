@@ -214,9 +214,41 @@ public class NotesApp extends JFrame {
             }
             card.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             
+            // Header panel for Title and Delete button
+            JPanel headerPanel = new JPanel(new BorderLayout());
+            headerPanel.setOpaque(false);
+
             JLabel title = new JLabel(note.getTitle());
             title.setFont(new Font(note.getFontFamily(), Font.BOLD, 16));
             title.setForeground(getContrastColor(card.getBackground()));
+            headerPanel.add(title, BorderLayout.CENTER);
+
+            JButton deleteBtn = new JButton("×");
+            deleteBtn.setMargin(new Insets(0,0,0,0));
+            deleteBtn.setContentAreaFilled(false);
+            deleteBtn.setBorderPainted(false);
+            deleteBtn.setFocusPainted(false);
+            deleteBtn.setForeground(getContrastColor(card.getBackground()));
+            deleteBtn.setFont(new Font("Arial", Font.BOLD, 20));
+            deleteBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+            deleteBtn.setToolTipText("Delete Note");
+            deleteBtn.addActionListener(e -> {
+                int choice = JOptionPane.showConfirmDialog(NotesApp.this, "Delete this note?", "Confirm", JOptionPane.YES_NO_OPTION);
+                if (choice == JOptionPane.YES_OPTION) {
+                    new SwingWorker<Void, Void>() {
+                        @Override
+                        protected Void doInBackground() {
+                            noteDAO.deleteNote(note.getId());
+                            return null;
+                        }
+                        @Override
+                        protected void done() {
+                            refreshNotes();
+                        }
+                    }.execute();
+                }
+            });
+            headerPanel.add(deleteBtn, BorderLayout.EAST);
             
             JTextArea preview = new JTextArea(note.getContent());
             preview.setFont(new Font(note.getFontFamily(), Font.PLAIN, 12));
@@ -227,7 +259,7 @@ public class NotesApp extends JFrame {
             preview.setWrapStyleWord(true);
             if (preview.getText().length() > 100) preview.setText(preview.getText().substring(0, 100) + "...");
 
-            card.add(title, BorderLayout.NORTH);
+            card.add(headerPanel, BorderLayout.NORTH);
             card.add(preview, BorderLayout.CENTER);
             
             // Click listener to open note
@@ -304,8 +336,16 @@ public class NotesApp extends JFrame {
         private JTextArea textArea;
         private Note currentNote;
         private boolean isNew;
-        // private DrawingPanel drawingPanel; // Re-use drawing panel logic if needed, or simplify for now
         
+        // Drawing components
+        private DrawingPanel drawingPanel;
+        private JPanel contentContainer;
+        private CardLayout contentLayout;
+        private Tool currentTool = Tool.PEN;
+        private int brushSize = 5;
+        
+        private enum Tool { PEN, ERASER, FILL }
+
         public EditorPanel() {
             setLayout(new BorderLayout());
             
@@ -326,8 +366,15 @@ public class NotesApp extends JFrame {
                 JOptionPane.showMessageDialog(this, "Saved!");
             });
 
+            JButton drawToggleBtn = new ModernButton("Draw", new Color(60, 60, 60), new Color(80, 80, 80));
+            drawToggleBtn.addActionListener(e -> {
+                CardLayout cl = (CardLayout) contentContainer.getLayout();
+                cl.next(contentContainer);
+            });
+
             JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
             rightButtons.setOpaque(false);
+            rightButtons.add(drawToggleBtn);
             rightButtons.add(saveBtn);
 
             topBar.add(backBtn, BorderLayout.WEST);
@@ -335,10 +382,15 @@ public class NotesApp extends JFrame {
             
             add(topBar, BorderLayout.NORTH);
 
-            // Content
-            JPanel contentPanel = new JPanel(new BorderLayout());
-            contentPanel.setOpaque(false);
-            contentPanel.setBorder(BorderFactory.createEmptyBorder(20, 40, 20, 40));
+            // Content Container (CardLayout for Text vs Draw)
+            contentLayout = new CardLayout();
+            contentContainer = new JPanel(contentLayout);
+            contentContainer.setOpaque(false);
+            contentContainer.setBorder(BorderFactory.createEmptyBorder(20, 40, 20, 40));
+
+            // 1. Text View
+            JPanel textPanel = new JPanel(new BorderLayout());
+            textPanel.setOpaque(false);
 
             titleField = new JTextField();
             titleField.setBorder(null);
@@ -359,10 +411,16 @@ public class NotesApp extends JFrame {
             scroll.getViewport().setOpaque(false);
             scroll.getVerticalScrollBar().setUI(new ModernScrollBarUI());
 
-            contentPanel.add(titleField, BorderLayout.NORTH);
-            contentPanel.add(scroll, BorderLayout.CENTER);
+            textPanel.add(titleField, BorderLayout.NORTH);
+            textPanel.add(scroll, BorderLayout.CENTER);
             
-            add(contentPanel, BorderLayout.CENTER);
+            // 2. Draw View
+            drawingPanel = new DrawingPanel();
+            
+            contentContainer.add(textPanel, "TEXT");
+            contentContainer.add(drawingPanel, "DRAW");
+            
+            add(contentContainer, BorderLayout.CENTER);
         }
 
         public void setNote(Note note) {
@@ -389,6 +447,9 @@ public class NotesApp extends JFrame {
             Font f = new Font(note.getFontFamily(), Font.PLAIN, 16);
             textArea.setFont(f);
             titleField.setFont(new Font(note.getFontFamily(), Font.BOLD, 24));
+            
+            // Reset drawing for new note (or load if we supported it)
+            drawingPanel.clear();
         }
         
         private void saveNote() {
@@ -403,10 +464,6 @@ public class NotesApp extends JFrame {
             
             if (isNew) {
                 noteDAO.addNote(currentNote);
-                // After adding, we need to get the ID back if we want to continue editing properly
-                // For now, just mark as not new so next save is an update
-                // Ideally DAO addNote should return ID or update object.
-                // Let's assume we reload from home.
                 isNew = false; 
             } else {
                 noteDAO.updateNote(currentNote);
@@ -417,7 +474,212 @@ public class NotesApp extends JFrame {
             double y = (299 * color.getRed() + 587 * color.getGreen() + 114 * color.getBlue()) / 1000;
             return y >= 128 ? Color.BLACK : Color.WHITE;
         }
+
+        // --- DrawingPanel inner class ---
+        private class DrawingPanel extends JPanel {
+            private BufferedImage canvas;
+            private Color currentColor = Color.BLACK;
+            private int prevX = -1, prevY = -1;
+
+            public DrawingPanel() {
+                setLayout(new BorderLayout());
+                setBackground(Color.WHITE);
+                
+                // --- Top Control Bar (Close & Save) ---
+                JPanel topControlBar = new JPanel(new BorderLayout());
+                topControlBar.setOpaque(false);
+                topControlBar.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+
+                JButton closeBtn = new JButton("Close");
+                closeBtn.addActionListener(e -> {
+                    CardLayout cl = (CardLayout) contentContainer.getLayout();
+                    cl.show(contentContainer, "TEXT");
+                });
+
+                JButton saveImgBtn = new JButton("Save Image");
+                saveImgBtn.addActionListener(e -> {
+                    JFileChooser fileChooser = new JFileChooser();
+                    fileChooser.setDialogTitle("Save Drawing");
+                    fileChooser.setFileFilter(new FileNameExtensionFilter("PNG Images", "png"));
+                    if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+                        File file = fileChooser.getSelectedFile();
+                        if (!file.getName().toLowerCase().endsWith(".png")) {
+                            file = new File(file.getParentFile(), file.getName() + ".png");
+                        }
+                        try {
+                            if (canvas != null) ImageIO.write(canvas, "png", file);
+                            JOptionPane.showMessageDialog(this, "Image saved successfully!");
+                        } catch (IOException ex) {
+                            ex.printStackTrace();
+                            JOptionPane.showMessageDialog(this, "Error saving image: " + ex.getMessage());
+                        }
+                    }
+                });
+
+                JPanel topRight = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+                topRight.setOpaque(false);
+                topRight.add(saveImgBtn);
+                topRight.add(closeBtn);
+                
+                topControlBar.add(topRight, BorderLayout.EAST);
+                add(topControlBar, BorderLayout.NORTH);
+
+                // --- Bottom Toolbar (Tools) ---
+                JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT));
+                toolbar.setBackground(new Color(240, 240, 240));
+                
+                JButton penBtn = new JButton("Pen");
+                JButton eraserBtn = new JButton("Eraser");
+                JButton fillBtn = new JButton("Fill");
+                JButton colorBtn = new JButton("Color");
+                JButton clearBtn = new JButton("Clear");
+                
+                JSlider sizeSlider = new JSlider(1, 50, brushSize);
+                sizeSlider.setPreferredSize(new Dimension(100, 20));
+                sizeSlider.addChangeListener(e -> brushSize = sizeSlider.getValue());
+
+                penBtn.addActionListener(e -> currentTool = Tool.PEN);
+                eraserBtn.addActionListener(e -> currentTool = Tool.ERASER);
+                fillBtn.addActionListener(e -> currentTool = Tool.FILL);
+                
+                colorBtn.addActionListener(e -> {
+                    Color newColor = JColorChooser.showDialog(this, "Choose Color", currentColor);
+                    if (newColor != null) {
+                        currentColor = newColor;
+                        // Update button color or icon to show selection
+                    }
+                });
+                
+                clearBtn.addActionListener(e -> clear());
+                
+                toolbar.add(new JLabel("Tools:"));
+                toolbar.add(penBtn);
+                toolbar.add(eraserBtn);
+                toolbar.add(fillBtn);
+                toolbar.add(new JSeparator(JSeparator.VERTICAL));
+                toolbar.add(new JLabel("Size:"));
+                toolbar.add(sizeSlider);
+                toolbar.add(new JSeparator(JSeparator.VERTICAL));
+                toolbar.add(colorBtn);
+                toolbar.add(clearBtn);
+                
+                add(toolbar, BorderLayout.SOUTH);
+
+                JPanel canvasPanel = new JPanel() {
+                    @Override
+                    protected void paintComponent(Graphics g) {
+                        super.paintComponent(g);
+                        if (canvas == null) ensureCanvas(getWidth(), getHeight());
+                        g.drawImage(canvas, 0, 0, null);
+                    }
+                };
+                canvasPanel.setBackground(Color.WHITE);
+                canvasPanel.setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+                add(canvasPanel, BorderLayout.CENTER);
+
+                canvasPanel.addMouseListener(new MouseAdapter() {
+                    @Override
+                    public void mousePressed(MouseEvent e) {
+                        ensureCanvas(canvasPanel.getWidth(), canvasPanel.getHeight());
+                        int x = e.getX();
+                        int y = e.getY();
+                        if (currentTool == Tool.FILL) {
+                            floodFill(x, y, currentColor);
+                        } else {
+                            prevX = x; prevY = y;
+                            Graphics2D g = canvas.createGraphics();
+                            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                            if (currentTool == Tool.ERASER) g.setColor(Color.WHITE);
+                            else g.setColor(currentColor);
+                            int s = brushSize;
+                            g.fillOval(x - s/2, y - s/2, s, s);
+                            g.dispose();
+                        }
+                        canvasPanel.repaint();
+                    }
+
+                    @Override
+                    public void mouseReleased(MouseEvent e) {
+                        prevX = -1;
+                        prevY = -1;
+                    }
+                });
+
+                canvasPanel.addMouseMotionListener(new MouseAdapter() {
+                    @Override
+                    public void mouseDragged(MouseEvent e) {
+                        ensureCanvas(canvasPanel.getWidth(), canvasPanel.getHeight());
+                        int x = e.getX();
+                        int y = e.getY();
+                        Graphics2D g = canvas.createGraphics();
+                        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        int s = brushSize;
+                        if (currentTool == Tool.ERASER) {
+                            g.setColor(Color.WHITE);
+                            g.setStroke(new BasicStroke(s, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                            if (prevX != -1) g.drawLine(prevX, prevY, x, y);
+                        } else {
+                            g.setColor(currentColor);
+                            int stroke = Math.max(1, s);
+                            g.setStroke(new BasicStroke(stroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                            if (prevX != -1) g.drawLine(prevX, prevY, x, y);
+                        }
+                        prevX = x;
+                        prevY = y;
+                        g.dispose();
+                        canvasPanel.repaint();
+                    }
+                });
+            }
+
+            private void ensureCanvas(int w, int h) {
+                if (canvas == null || canvas.getWidth() != w || canvas.getHeight() != h) {
+                    BufferedImage newCanvas = new BufferedImage(Math.max(1, w), Math.max(1, h), BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D g = newCanvas.createGraphics();
+                    g.setColor(Color.WHITE);
+                    g.fillRect(0, 0, newCanvas.getWidth(), newCanvas.getHeight());
+                    if (canvas != null) g.drawImage(canvas, 0, 0, null);
+                    g.dispose();
+                    canvas = newCanvas;
+                }
+            }
+
+            public void clear() {
+                if (canvas != null) {
+                    Graphics2D g = canvas.createGraphics();
+                    g.setColor(Color.WHITE);
+                    g.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
+                    g.dispose();
+                    repaint();
+                }
+            }
+
+            // Simple iterative flood fill (BFS) on canvas image
+            private void floodFill(int x, int y, Color fillColor) {
+                if (canvas == null) return;
+                int w = canvas.getWidth(), h = canvas.getHeight();
+                if (x < 0 || x >= w || y < 0 || y >= h) return;
+                int target = canvas.getRGB(x, y);
+                int replacement = fillColor.getRGB();
+                if (target == replacement) return;
+                Deque<Point> stack = new ArrayDeque<>();
+                stack.push(new Point(x, y));
+                while (!stack.isEmpty()) {
+                    Point p = stack.pop();
+                    int px = p.x, py = p.y;
+                    if (px < 0 || px >= w || py < 0 || py >= h) continue;
+                    if (canvas.getRGB(px, py) != target) continue;
+                    canvas.setRGB(px, py, replacement);
+                    stack.push(new Point(px+1, py));
+                    stack.push(new Point(px-1, py));
+                    stack.push(new Point(px, py+1));
+                    stack.push(new Point(px, py-1));
+                }
+            }
+        }
     }
+
+
 
     // --- Custom UI Components ---
 
