@@ -81,29 +81,69 @@ public class NotesApp extends JFrame {
     private class HomePanel extends JPanel {
         private JPanel gridPanel;
         private List<Note> notes;
+        private JTextField searchField;
 
         public HomePanel() {
             setLayout(new BorderLayout());
-            setBackground(new Color(18, 18, 18));
+            setBackground(new Color(25, 25, 25)); // Slightly lighter dark theme
 
             // Header
             JPanel header = new JPanel(new BorderLayout());
-            header.setBackground(new Color(18, 18, 18));
+            header.setBackground(new Color(25, 25, 25));
             header.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+            
             JLabel title = new JLabel("My Notes");
             title.setFont(new Font("Segoe UI", Font.BOLD, 28));
             title.setForeground(Color.WHITE);
             header.add(title, BorderLayout.WEST);
-            add(header, BorderLayout.NORTH);
+
+            // Search Bar
+            JPanel searchContainer = new JPanel(new FlowLayout(FlowLayout.CENTER));
+            searchContainer.setOpaque(false);
+            
+            searchField = new JTextField(20) {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(getBackground());
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 30, 30);
+                    super.paintComponent(g2);
+                    g2.dispose();
+                }
+                @Override
+                protected void paintBorder(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(new Color(60, 60, 60));
+                    g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 30, 30);
+                    g2.dispose();
+                }
+            };
+            searchField.setOpaque(false);
+            searchField.setFont(new Font("Segoe UI", Font.PLAIN, 16));
+            searchField.setForeground(Color.WHITE);
+            searchField.setCaretColor(Color.WHITE);
+            searchField.setBackground(new Color(40, 40, 40));
+            searchField.setBorder(BorderFactory.createEmptyBorder(5, 15, 5, 15));
+            
+            searchField.getDocument().addDocumentListener(new DocumentListener() {
+                public void insertUpdate(DocumentEvent e) { filterNotes(); }
+                public void removeUpdate(DocumentEvent e) { filterNotes(); }
+                public void changedUpdate(DocumentEvent e) { filterNotes(); }
+            });
+
+            searchContainer.add(searchField);
+            header.add(searchContainer, BorderLayout.CENTER);
 
             // Grid of Notes
             gridPanel = new JPanel(new GridLayout(0, 3, 15, 15)); // 3 columns
-            gridPanel.setBackground(new Color(18, 18, 18));
+            gridPanel.setBackground(new Color(25, 25, 25));
             gridPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
             
             // We need a wrapper panel to keep grid items from expanding too much vertically if few items
             JPanel gridWrapper = new JPanel(new BorderLayout());
-            gridWrapper.setBackground(new Color(18, 18, 18));
+            gridWrapper.setBackground(new Color(25, 25, 25));
             gridWrapper.add(gridPanel, BorderLayout.NORTH);
             
             JScrollPane scrollPane = new JScrollPane(gridWrapper);
@@ -139,7 +179,7 @@ public class NotesApp extends JFrame {
             layeredPane.setLayout(new OverlayLayout(layeredPane));
             
             JPanel contentPanel = new JPanel(new BorderLayout());
-            contentPanel.setBackground(new Color(18, 18, 18));
+            contentPanel.setBackground(new Color(25, 25, 25));
             contentPanel.add(header, BorderLayout.NORTH);
             contentPanel.add(scrollPane, BorderLayout.CENTER);
             
@@ -171,7 +211,6 @@ public class NotesApp extends JFrame {
         }
 
         public void refreshNotes() {
-            gridPanel.removeAll();
             new SwingWorker<List<Note>, Void>() {
                 @Override
                 protected List<Note> doInBackground() throws Exception {
@@ -182,11 +221,7 @@ public class NotesApp extends JFrame {
                 protected void done() {
                     try {
                         notes = get();
-                        for (Note n : notes) {
-                            gridPanel.add(createNoteCard(n));
-                        }
-                        gridPanel.revalidate();
-                        gridPanel.repaint();
+                        filterNotes();
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
@@ -194,22 +229,55 @@ public class NotesApp extends JFrame {
             }.execute();
         }
 
+        private void filterNotes() {
+            String query = (searchField != null) ? searchField.getText().toLowerCase() : "";
+            List<Note> filtered = new ArrayList<>();
+            if (notes != null) {
+                for (Note n : notes) {
+                    if (n.getTitle().toLowerCase().contains(query) || n.getContent().toLowerCase().contains(query)) {
+                        filtered.add(n);
+                    }
+                }
+                updateGrid(filtered);
+            }
+        }
+
+        private void updateGrid(List<Note> notesToShow) {
+            gridPanel.removeAll();
+            for (Note n : notesToShow) {
+                gridPanel.add(createNoteCard(n));
+            }
+            gridPanel.revalidate();
+            gridPanel.repaint();
+        }
+
         private JPanel createNoteCard(Note note) {
-            JPanel card = new JPanel(new BorderLayout());
+            // Custom Rounded Panel
+            JPanel card = new JPanel(new BorderLayout()) {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(getBackground());
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 20, 20);
+                    g2.dispose();
+                }
+            };
+            card.setOpaque(false); // Important for rounded corners
             card.setPreferredSize(new Dimension(200, 150));
             try {
                 card.setBackground(Color.decode(note.getBackgroundColor()));
             } catch (Exception e) {
                 card.setBackground(new Color(30, 30, 30));
             }
-            card.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            card.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
             
             // Header panel for Title and Delete button
             JPanel headerPanel = new JPanel(new BorderLayout());
             headerPanel.setOpaque(false);
 
             JLabel title = new JLabel(note.getTitle());
-            title.setFont(new Font(note.getFontFamily(), Font.BOLD, 16));
+            title.setFont(new Font(note.getFontFamily(), Font.BOLD, 18));
             title.setForeground(getContrastColor(card.getBackground()));
             headerPanel.add(title, BorderLayout.CENTER);
 
@@ -219,7 +287,7 @@ public class NotesApp extends JFrame {
             deleteBtn.setBorderPainted(false);
             deleteBtn.setFocusPainted(false);
             deleteBtn.setForeground(getContrastColor(card.getBackground()));
-            deleteBtn.setFont(new Font("Arial", Font.BOLD, 20));
+            deleteBtn.setFont(new Font("Arial", Font.BOLD, 24));
             deleteBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
             deleteBtn.setToolTipText("Delete Note");
             deleteBtn.addActionListener(e -> {
@@ -241,7 +309,7 @@ public class NotesApp extends JFrame {
             headerPanel.add(deleteBtn, BorderLayout.EAST);
             
             JTextArea preview = new JTextArea(note.getContent());
-            preview.setFont(new Font(note.getFontFamily(), Font.PLAIN, 12));
+            preview.setFont(new Font(note.getFontFamily(), Font.PLAIN, 14));
             preview.setForeground(getContrastColor(card.getBackground()));
             preview.setOpaque(false);
             preview.setEditable(false);
@@ -257,6 +325,16 @@ public class NotesApp extends JFrame {
                 @Override
                 public void mouseClicked(MouseEvent e) {
                     showEditor(note);
+                }
+                // Add hover effect
+                public void mouseEntered(MouseEvent e) {
+                    card.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new Color(255, 255, 255, 100), 2, true),
+                        BorderFactory.createEmptyBorder(13, 13, 13, 13)
+                    ));
+                }
+                public void mouseExited(MouseEvent e) {
+                    card.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
                 }
             });
             // Add to children too so clicking text works
@@ -717,7 +795,8 @@ public class NotesApp extends JFrame {
                 g2.setColor(normalColor);
             }
             
-            g2.fill(new RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 10, 10));
+            // More rounded corners (pill shape if height is small enough, or just rounded rect)
+            g2.fill(new RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 20, 20));
             
             super.paintComponent(g);
             g2.dispose();
