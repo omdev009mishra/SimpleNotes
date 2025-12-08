@@ -1,7 +1,7 @@
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Date; // Import Date
+import java.util.Date;
 import java.util.Collections;
 import java.util.Comparator;
 
@@ -16,7 +16,7 @@ public class DatabaseManager implements NoteDAO {
         try {
             Class.forName("org.sqlite.JDBC");
         } catch (ClassNotFoundException e) {
-            System.err.println("SQLite JDBC Driver not found.SQLite JDBC Driver not found.");
+            System.err.println("SQLite JDBC Driver not found. Using In-Memory mode.");
             useInMemory = true;
         }
     }
@@ -40,9 +40,10 @@ public class DatabaseManager implements NoteDAO {
                 + " id INTEGER PRIMARY KEY AUTOINCREMENT,"
                 + " title TEXT NOT NULL,"
                 + " content TEXT,"
-                + " last_modified INTEGER NOT NULL," // We store dates as numbers (timestamps)
+                + " last_modified INTEGER NOT NULL,"
                 + " background_color TEXT,"
-                + " font_family TEXT"
+                + " font_family TEXT,"
+                + " category TEXT"
                 + ");";
 
         try (Connection conn = connect();
@@ -56,6 +57,9 @@ public class DatabaseManager implements NoteDAO {
             try {
                 stmt.execute("ALTER TABLE notes ADD COLUMN font_family TEXT");
             } catch (SQLException ignored) {}
+            try {
+                stmt.execute("ALTER TABLE notes ADD COLUMN category TEXT");
+            } catch (SQLException ignored) {}
             
             System.out.println("Database setup completed.");
         }
@@ -64,38 +68,6 @@ public class DatabaseManager implements NoteDAO {
     @Override
     public void addNote(Note note) {
         if (useInMemory) {
-            // Reflection to set ID since it's private and no setter? 
-            // Actually Note usually has an ID in constructor.
-            // We need to create a new Note object with the ID, or assume Note has a setId method.
-            // Let's check Note.java. Assuming it has getters/setters or we can create a new one.
-            // For now, let's assume we can just add it, but we need to assign an ID.
-            // Since we can't easily modify the ID of the passed object if it's final or private without setter,
-            // we might need to rely on the caller to handle the ID or use reflection.
-            // However, looking at previous read_file of Note.java, it has `private int id;` and `public int getId()`.
-            // It didn't show a setId.
-            // Let's assume we can't set ID easily without modifying Note.java.
-            // But wait, the `addNote` method in DAO usually inserts and the DB generates ID.
-            // The caller might expect the ID to be set?
-            // The `EditorPanel` logic was: `noteDAO.addNote(currentNote); isNew = false;`
-            // It didn't update the `currentNote` with the new ID. This is a bug in the original code too if it relied on ID.
-            // But for in-memory, we can just store it.
-            // To be correct, we should probably update the ID.
-            // Let's check Note.java again to see if I can add a setter or if it exists.
-            // I'll assume I can add a setter if needed.
-            // For now, I'll just add to list.
-            
-            // Actually, I'll use a hack: create a new Note with ID and replace the reference if possible, 
-            // but I can't replace the caller's reference.
-            // I will modify Note.java to add setId if missing.
-            // But first let's implement the list logic.
-            
-            // Note: The previous read of Note.java showed:
-            // public Note(int id, String title, String content, Date lastModified, String backgroundColor, String fontFamily)
-            // It didn't show setId.
-            
-            // I will try to use reflection to set ID if needed, or just ignore ID for now if the app doesn't strictly use it for anything other than updates.
-            // But updates need ID.
-            // So I MUST set the ID.
             try {
                 java.lang.reflect.Field idField = Note.class.getDeclaredField("id");
                 idField.setAccessible(true);
@@ -108,17 +80,17 @@ public class DatabaseManager implements NoteDAO {
             return;
         }
         
-        String sql = "INSERT INTO notes(title, content, last_modified, background_color, font_family) VALUES(?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO notes(title, content, last_modified, background_color, font_family, category) VALUES(?, ?, ?, ?, ?, ?)";
 
         try (Connection conn = connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setString(1, note.getTitle());
             pstmt.setString(2, note.getContent());
-            // Convert Java Date to database number (long)
             pstmt.setLong(3, note.getLastModified().getTime());
             pstmt.setString(4, note.getBackgroundColor());
             pstmt.setString(5, note.getFontFamily());
+            pstmt.setString(6, note.getCategory());
 
             pstmt.executeUpdate();
             System.out.println("Note added: " + note.getTitle());
@@ -149,7 +121,8 @@ public class DatabaseManager implements NoteDAO {
                         rs.getString("content"),
                         new Date(rs.getLong("last_modified")),
                         rs.getString("background_color"),
-                        rs.getString("font_family")
+                        rs.getString("font_family"),
+                        rs.getString("category")
                 );
             }
         } catch (SQLException e) {
@@ -180,7 +153,8 @@ public class DatabaseManager implements NoteDAO {
                         rs.getString("content"),
                         new Date(rs.getLong("last_modified")),
                         rs.getString("background_color"),
-                        rs.getString("font_family")
+                        rs.getString("font_family"),
+                        rs.getString("category")
                 );
                 notes.add(note);
             }
@@ -198,24 +172,24 @@ public class DatabaseManager implements NoteDAO {
                 existing.setTitle(note.getTitle());
                 existing.setContent(note.getContent());
                 existing.setLastModified(new Date());
-                // existing.setBackgroundColor(note.getBackgroundColor()); // Assuming setters exist
-                // existing.setFontFamily(note.getFontFamily());
+                existing.setCategory(note.getCategory());
                 System.out.println("Note updated (In-Memory): " + note.getTitle());
             }
             return;
         }
         
-        String sql = "UPDATE notes SET title = ?, content = ?, last_modified = ?, background_color = ?, font_family = ? WHERE id = ?";
+        String sql = "UPDATE notes SET title = ?, content = ?, last_modified = ?, background_color = ?, font_family = ?, category = ? WHERE id = ?";
 
         try (Connection conn = connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setString(1, note.getTitle());
             pstmt.setString(2, note.getContent());
-            pstmt.setLong(3, new Date().getTime()); // Update time to now
+            pstmt.setLong(3, new Date().getTime());
             pstmt.setString(4, note.getBackgroundColor());
             pstmt.setString(5, note.getFontFamily());
-            pstmt.setInt(6, note.getId());
+            pstmt.setString(6, note.getCategory());
+            pstmt.setInt(7, note.getId());
 
             pstmt.executeUpdate();
             System.out.println("Note updated: " + note.getTitle());

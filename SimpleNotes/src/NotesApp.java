@@ -31,15 +31,16 @@ import java.awt.event.ActionEvent;
  */
 public class NotesApp extends JFrame {
 
-    private CardLayout cardLayout;
-    private JPanel mainPanel;
-    private HomePanel homePanel;
-    private EditorPanel editorPanel;
     private NoteDAO noteDAO;
+    private NoteListPanel noteListPanel;
+    private EditorPanel editorPanel;
+    private SidebarPanel sidebar;
+    private boolean isDarkMode = true;
+    private String currentCategory = "Personal";
 
     public NotesApp() {
-        setTitle("Simple Notes App");
-        setSize(900, 600);
+        setTitle("NoteSphere");
+        setSize(1200, 800);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
@@ -52,165 +53,298 @@ public class NotesApp extends JFrame {
             System.exit(1);
         }
 
-        cardLayout = new CardLayout();
-        mainPanel = new JPanel(cardLayout);
+        initUI();
+    }
 
-        homePanel = new HomePanel();
+    private void initUI() {
+        setLayout(new BorderLayout());
+        
+        // 1. Sidebar (Left)
+        sidebar = new SidebarPanel();
+        
+        // 2. Note List (Middle)
+        noteListPanel = new NoteListPanel();
+        
+        // 3. Editor (Right)
         editorPanel = new EditorPanel();
-
-        mainPanel.add(homePanel, "HOME");
-        mainPanel.add(editorPanel, "EDITOR");
-
-        add(mainPanel);
+        
+        // Wire up selection
+        noteListPanel.setSelectionListener(note -> editorPanel.setNote(note));
+        
+        // Create Split Panes
+        // Inner split: List vs Editor
+        JSplitPane innerSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, noteListPanel, editorPanel);
+        innerSplit.setDividerLocation(350); // Width of note list
+        innerSplit.setDividerSize(1);
+        innerSplit.setBorder(null);
+        
+        // Outer split: Sidebar vs Inner
+        JSplitPane outerSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sidebar, innerSplit);
+        outerSplit.setDividerLocation(250); // Width of sidebar
+        outerSplit.setDividerSize(1);
+        outerSplit.setBorder(null);
+        
+        add(outerSplit, BorderLayout.CENTER);
         
         // Initial load
-        homePanel.refreshNotes();
+        noteListPanel.refreshNotes();
     }
 
-    private void showHome() {
-        homePanel.refreshNotes();
-        cardLayout.show(mainPanel, "HOME");
+    // --- Sidebar Panel ---
+    private class SidebarPanel extends JPanel {
+        private List<JPanel> categoryItems = new ArrayList<>();
+        private List<String> categories = new ArrayList<>();
+
+        private JLabel appTitle;
+        private JLabel settings;
+        private JPanel content;
+
+        public SidebarPanel() {
+            setLayout(new BorderLayout());
+            
+            content = new JPanel();
+            content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+            content.setOpaque(false);
+            content.setBorder(BorderFactory.createEmptyBorder(20, 10, 20, 10));
+            
+            // App Title
+            appTitle = new JLabel(" NoteSphere");
+            appTitle.setFont(new Font("Segoe UI", Font.BOLD, 18));
+            appTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(appTitle);
+            content.add(Box.createVerticalStrut(30));
+            
+            // Notebooks Section
+            addSectionTitle(content, "Notebooks");
+            addCategoryItem(content, "Personal");
+            addCategoryItem(content, "Work");
+            addCategoryItem(content, "Ideas");
+            content.add(Box.createVerticalStrut(20));
+            
+            // Recents Section
+            addSectionTitle(content, "Recents");
+            // addSidebarItem(content, "Diaries", false); // Placeholder
+            // addSidebarItem(content, "TodoList", false); // Placeholder
+            
+            add(content, BorderLayout.NORTH);
+            
+            // Settings at bottom
+            settings = new JLabel(" Settings");
+            settings.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            settings.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+            settings.setCursor(new Cursor(Cursor.HAND_CURSOR));
+            settings.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    showSettingsDialog();
+                }
+                @Override
+                public void mouseEntered(MouseEvent e) {
+                    settings.setForeground(isDarkMode ? Color.WHITE : Color.BLACK);
+                }
+                @Override
+                public void mouseExited(MouseEvent e) {
+                    settings.setForeground(Color.GRAY);
+                }
+            });
+            add(settings, BorderLayout.SOUTH);
+            
+            updateTheme(isDarkMode);
+        }
+        
+        private void addSectionTitle(JPanel p, String text) {
+            JLabel l = new JLabel(text);
+            l.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            l.setForeground(Color.GRAY);
+            l.setAlignmentX(Component.LEFT_ALIGNMENT);
+            p.add(l);
+            p.add(Box.createVerticalStrut(10));
+        }
+        
+        private void addCategoryItem(JPanel p, String text) {
+            JPanel item = new JPanel(new BorderLayout());
+            item.setMaximumSize(new Dimension(Integer.MAX_VALUE, 35));
+            boolean isSelected = text.equals(currentCategory);
+            item.setOpaque(isSelected);
+            
+            // Initial color set by updateTheme or here if needed, but updateTheme is called at end of constructor
+            // We can set a default based on isDarkMode
+            if (isSelected) item.setBackground(isDarkMode ? new Color(60, 60, 60) : new Color(220, 220, 220));
+            
+            JLabel l = new JLabel(" " + text); // Icon placeholder
+            l.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            l.setForeground(isDarkMode ? Color.WHITE : Color.BLACK);
+            l.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 0));
+            
+            item.add(l, BorderLayout.CENTER);
+            item.setAlignmentX(Component.LEFT_ALIGNMENT);
+            
+            item.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    selectCategory(text);
+                }
+                @Override
+                public void mouseEntered(MouseEvent e) {
+                    if (!text.equals(currentCategory)) {
+                        item.setOpaque(true);
+                        item.setBackground(isDarkMode ? new Color(50, 50, 50) : new Color(230, 230, 230));
+                        item.repaint();
+                    }
+                }
+                @Override
+                public void mouseExited(MouseEvent e) {
+                    if (!text.equals(currentCategory)) {
+                        item.setOpaque(false);
+                        item.repaint();
+                    }
+                }
+            });
+
+            categoryItems.add(item);
+            categories.add(text);
+            p.add(item);
+            p.add(Box.createVerticalStrut(5));
+        }
+
+        private void selectCategory(String category) {
+            currentCategory = category;
+            for (int i = 0; i < categories.size(); i++) {
+                JPanel item = categoryItems.get(i);
+                String cat = categories.get(i);
+                boolean isSelected = cat.equals(category);
+                item.setOpaque(isSelected);
+                if (isSelected) item.setBackground(isDarkMode ? new Color(60, 60, 60) : new Color(220, 220, 220));
+                item.repaint();
+            }
+            noteListPanel.setCategory(category);
+            noteListPanel.refreshNotes();
+        }
+        
+        public void updateTheme(boolean dark) {
+            Color bg = dark ? new Color(45, 45, 45) : new Color(240, 240, 240);
+            Color fg = dark ? Color.WHITE : Color.BLACK;
+            Color border = dark ? new Color(30, 30, 30) : new Color(200, 200, 200);
+            
+            setBackground(bg);
+            setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, border));
+            
+            appTitle.setForeground(fg);
+            settings.setForeground(Color.GRAY);
+            
+            // Update section titles
+            for (Component c : content.getComponents()) {
+                if (c instanceof JLabel && (((JLabel)c).getText().equals("Notebooks") || ((JLabel)c).getText().equals("Recents"))) {
+                     ((JLabel)c).setForeground(Color.GRAY);
+                }
+            }
+
+            // Update categories
+            for (int i = 0; i < categoryItems.size(); i++) {
+                JPanel item = categoryItems.get(i);
+                String cat = categories.get(i);
+                boolean isSelected = cat.equals(currentCategory);
+                
+                JLabel l = (JLabel) item.getComponent(0);
+                l.setForeground(fg);
+                
+                if (isSelected) {
+                    item.setBackground(dark ? new Color(60, 60, 60) : new Color(220, 220, 220));
+                } else {
+                    item.setBackground(bg);
+                }
+            }
+            repaint();
+        }
     }
 
-    private void showEditor(Note note) {
-        editorPanel.setNote(note);
-        cardLayout.show(mainPanel, "EDITOR");
-    }
-
-    // --- Home Panel ---
-    private class HomePanel extends JPanel {
-        private JPanel gridPanel;
+    // --- Note List Panel ---
+    private class NoteListPanel extends JPanel {
+        private JPanel listContainer;
         private List<Note> notes;
         private JTextField searchField;
+        private java.util.function.Consumer<Note> selectionListener;
+        private String categoryFilter = "Personal";
+        private JLabel titleLabel;
 
-        public HomePanel() {
+        public NoteListPanel() {
             setLayout(new BorderLayout());
-            setBackground(new Color(25, 25, 25)); // Slightly lighter dark theme
+            setBackground(new Color(30, 30, 30)); // Middle Pane Color
+            setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, new Color(20, 20, 20)));
 
             // Header
             JPanel header = new JPanel(new BorderLayout());
-            header.setBackground(new Color(25, 25, 25));
-            header.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+            header.setBackground(new Color(30, 30, 30));
+            header.setBorder(BorderFactory.createEmptyBorder(20, 20, 10, 20));
             
-            JLabel title = new JLabel("My Notes");
-            title.setFont(new Font("Segoe UI", Font.BOLD, 28));
-            title.setForeground(Color.WHITE);
-            header.add(title, BorderLayout.WEST);
-
+            titleLabel = new JLabel("Personal");
+            titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 24));
+            titleLabel.setForeground(Color.WHITE);
+            header.add(titleLabel, BorderLayout.WEST);
+            
+            // Add Button
+            JButton addBtn = new JButton("+");
+            addBtn.setForeground(Color.WHITE);
+            addBtn.setBorderPainted(false);
+            addBtn.setContentAreaFilled(false);
+            addBtn.setFont(new Font("Segoe UI", Font.BOLD, 20));
+            addBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+            addBtn.addActionListener(e -> showNewNoteDialog());
+            header.add(addBtn, BorderLayout.EAST);
+            
+            add(header, BorderLayout.NORTH);
+            
+            // Search & List
+            JPanel centerPanel = new JPanel(new BorderLayout());
+            centerPanel.setBackground(new Color(30, 30, 30));
+            
             // Search Bar
-            JPanel searchContainer = new JPanel(new FlowLayout(FlowLayout.CENTER));
-            searchContainer.setOpaque(false);
-            
-            searchField = new JTextField(20) {
-                @Override
-                protected void paintComponent(Graphics g) {
-                    Graphics2D g2 = (Graphics2D) g.create();
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2.setColor(getBackground());
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 30, 30);
-                    super.paintComponent(g2);
-                    g2.dispose();
-                }
-                @Override
-                protected void paintBorder(Graphics g) {
-                    Graphics2D g2 = (Graphics2D) g.create();
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2.setColor(new Color(60, 60, 60));
-                    g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 30, 30);
-                    g2.dispose();
-                }
-            };
-            searchField.setOpaque(false);
-            searchField.setFont(new Font("Segoe UI", Font.PLAIN, 16));
+            searchField = new JTextField();
+            searchField.setBackground(new Color(45, 45, 45));
             searchField.setForeground(Color.WHITE);
             searchField.setCaretColor(Color.WHITE);
-            searchField.setBackground(new Color(40, 40, 40));
-            searchField.setBorder(BorderFactory.createEmptyBorder(5, 15, 5, 15));
-            
+            searchField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(45, 45, 45), 5),
+                BorderFactory.createEmptyBorder(5, 10, 5, 10)
+            ));
+            searchField.putClientProperty("JTextField.placeholderText", "Search");
             searchField.getDocument().addDocumentListener(new DocumentListener() {
                 public void insertUpdate(DocumentEvent e) { filterNotes(); }
                 public void removeUpdate(DocumentEvent e) { filterNotes(); }
                 public void changedUpdate(DocumentEvent e) { filterNotes(); }
             });
-
-            searchContainer.add(searchField);
-            header.add(searchContainer, BorderLayout.CENTER);
-
-            // Grid of Notes
-            gridPanel = new JPanel(new GridLayout(0, 3, 15, 15)); // 3 columns
-            gridPanel.setBackground(new Color(25, 25, 25));
-            gridPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
             
-            // We need a wrapper panel to keep grid items from expanding too much vertically if few items
-            JPanel gridWrapper = new JPanel(new BorderLayout());
-            gridWrapper.setBackground(new Color(25, 25, 25));
-            gridWrapper.add(gridPanel, BorderLayout.NORTH);
+            JPanel searchWrapper = new JPanel(new BorderLayout());
+            searchWrapper.setBackground(new Color(30, 30, 30));
+            searchWrapper.setBorder(BorderFactory.createEmptyBorder(0, 20, 10, 20));
+            searchWrapper.add(searchField, BorderLayout.CENTER);
             
-            JScrollPane scrollPane = new JScrollPane(gridWrapper);
-            scrollPane.setBorder(null);
-            scrollPane.getVerticalScrollBar().setUI(new ModernScrollBarUI());
-            add(scrollPane, BorderLayout.CENTER);
-
-            // FAB (Floating Action Button)
-            JButton fab = new ModernButton("+", new Color(100, 149, 237), new Color(120, 169, 255)) {
-                @Override
-                protected void paintComponent(Graphics g) {
-                    Graphics2D g2 = (Graphics2D) g.create();
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2.setColor(getBackground()); 
-                    g2.fillOval(0, 0, getWidth(), getHeight());
-                    
-                    // Draw text centered
-                    g2.setColor(getForeground());
-                    FontMetrics fm = g2.getFontMetrics();
-                    Rectangle r = getBounds();
-                    int x = (r.width - fm.stringWidth(getText())) / 2;
-                    int y = (r.height - fm.getHeight()) / 2 + fm.getAscent();
-                    g2.drawString(getText(), x, y);
-                    g2.dispose();
-                }
-            };
-            fab.setFont(new Font("Segoe UI", Font.BOLD, 30));
-            fab.setForeground(Color.WHITE);
-            fab.setPreferredSize(new Dimension(60, 60));
+            centerPanel.add(searchWrapper, BorderLayout.NORTH);
             
-            // Use JLayeredPane to float the FAB
-            JLayeredPane layeredPane = new JLayeredPane();
-            layeredPane.setLayout(new OverlayLayout(layeredPane));
+            // List
+            listContainer = new JPanel();
+            listContainer.setLayout(new BoxLayout(listContainer, BoxLayout.Y_AXIS));
+            listContainer.setBackground(new Color(30, 30, 30));
             
-            JPanel contentPanel = new JPanel(new BorderLayout());
-            contentPanel.setBackground(new Color(25, 25, 25));
-            contentPanel.add(header, BorderLayout.NORTH);
-            contentPanel.add(scrollPane, BorderLayout.CENTER);
+            JScrollPane scroll = new JScrollPane(listContainer);
+            scroll.setBorder(null);
+            scroll.getVerticalScrollBar().setUI(new ModernScrollBarUI(isDarkMode));
             
-            JPanel fabPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 30, 30));
-            fabPanel.setOpaque(false);
-            fabPanel.add(fab);
-            
-            // To make OverlayLayout work with these panels, we need to set alignment
-            contentPanel.setAlignmentX(0.5f);
-            contentPanel.setAlignmentY(0.5f);
-            fabPanel.setAlignmentX(0.5f);
-            fabPanel.setAlignmentY(0.5f);
-            
-            // Add to layered pane (content first, then fab on top)
-            // Note: In OverlayLayout, the last added component is on the bottom (z-order).
-            // Wait, OverlayLayout documentation says: "The component added first is displayed on top of the component added second, etc."
-            // So we add FAB first.
-            layeredPane.add(fabPanel);
-            layeredPane.add(contentPanel);
-            
-            // Actually, let's just use the layered pane directly without OverlayLayout for simpler absolute positioning if needed,
-            // but OverlayLayout is good for resizing.
-            // Let's try the OverlayLayout approach.
-            
-            removeAll();
-            add(layeredPane, BorderLayout.CENTER);
-
-            fab.addActionListener(e -> showNewNoteDialog());
+            centerPanel.add(scroll, BorderLayout.CENTER);
+            add(centerPanel, BorderLayout.CENTER);
+        }
+        
+        public void setSelectionListener(java.util.function.Consumer<Note> listener) {
+            this.selectionListener = listener;
+        }
+        
+        public void setCategory(String category) {
+            this.categoryFilter = category;
+            titleLabel.setText(category);
         }
 
         public void refreshNotes() {
+            listContainer.removeAll();
             new SwingWorker<List<Note>, Void>() {
                 @Override
                 protected List<Note> doInBackground() throws Exception {
@@ -234,165 +368,189 @@ public class NotesApp extends JFrame {
             List<Note> filtered = new ArrayList<>();
             if (notes != null) {
                 for (Note n : notes) {
-                    if (n.getTitle().toLowerCase().contains(query) || n.getContent().toLowerCase().contains(query)) {
-                        filtered.add(n);
+                    String noteCat = n.getCategory();
+                    if (noteCat == null) noteCat = "Personal"; // Default
+                    
+                    if (noteCat.equals(categoryFilter)) {
+                        if (n.getTitle().toLowerCase().contains(query) || n.getContent().toLowerCase().contains(query)) {
+                            filtered.add(n);
+                        }
                     }
                 }
-                updateGrid(filtered);
+                updateList(filtered);
             }
         }
 
-        private void updateGrid(List<Note> notesToShow) {
-            gridPanel.removeAll();
+        private void updateList(List<Note> notesToShow) {
+            listContainer.removeAll();
             for (Note n : notesToShow) {
-                gridPanel.add(createNoteCard(n));
+                listContainer.add(createListItem(n));
+                listContainer.add(Box.createVerticalStrut(5)); // Spacing
             }
-            gridPanel.revalidate();
-            gridPanel.repaint();
-        }
-
-        private JPanel createNoteCard(Note note) {
-            // Custom Rounded Panel
-            JPanel card = new JPanel(new BorderLayout()) {
-                @Override
-                protected void paintComponent(Graphics g) {
-                    Graphics2D g2 = (Graphics2D) g.create();
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2.setColor(getBackground());
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 20, 20);
-                    g2.dispose();
-                }
-            };
-            card.setOpaque(false); // Important for rounded corners
-            card.setPreferredSize(new Dimension(200, 150));
-            try {
-                card.setBackground(Color.decode(note.getBackgroundColor()));
-            } catch (Exception e) {
-                card.setBackground(new Color(30, 30, 30));
-            }
-            card.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
-            
-            // Header panel for Title and Delete button
-            JPanel headerPanel = new JPanel(new BorderLayout());
-            headerPanel.setOpaque(false);
-
-            JLabel title = new JLabel(note.getTitle());
-            title.setFont(new Font(note.getFontFamily(), Font.BOLD, 18));
-            title.setForeground(getContrastColor(card.getBackground()));
-            headerPanel.add(title, BorderLayout.CENTER);
-
-            JButton deleteBtn = new JButton("×");
-            deleteBtn.setMargin(new Insets(0,0,0,0));
-            deleteBtn.setContentAreaFilled(false);
-            deleteBtn.setBorderPainted(false);
-            deleteBtn.setFocusPainted(false);
-            deleteBtn.setForeground(getContrastColor(card.getBackground()));
-            deleteBtn.setFont(new Font("Arial", Font.BOLD, 24));
-            deleteBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-            deleteBtn.setToolTipText("Delete Note");
-            deleteBtn.addActionListener(e -> {
-                int choice = JOptionPane.showConfirmDialog(NotesApp.this, "Delete this note?", "Confirm", JOptionPane.YES_NO_OPTION);
-                if (choice == JOptionPane.YES_OPTION) {
-                    new SwingWorker<Void, Void>() {
-                        @Override
-                        protected Void doInBackground() {
-                            noteDAO.deleteNote(note.getId());
-                            return null;
-                        }
-                        @Override
-                        protected void done() {
-                            refreshNotes();
-                        }
-                    }.execute();
-                }
-            });
-            headerPanel.add(deleteBtn, BorderLayout.EAST);
-            
-            JTextArea preview = new JTextArea(note.getContent());
-            preview.setFont(new Font(note.getFontFamily(), Font.PLAIN, 14));
-            preview.setForeground(getContrastColor(card.getBackground()));
-            preview.setOpaque(false);
-            preview.setEditable(false);
-            preview.setLineWrap(true);
-            preview.setWrapStyleWord(true);
-            if (preview.getText().length() > 100) preview.setText(preview.getText().substring(0, 100) + "...");
-
-            card.add(headerPanel, BorderLayout.NORTH);
-            card.add(preview, BorderLayout.CENTER);
-            
-            // Click listener to open note
-            card.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    showEditor(note);
-                }
-                // Add hover effect
-                public void mouseEntered(MouseEvent e) {
-                    card.setBorder(BorderFactory.createCompoundBorder(
-                        BorderFactory.createLineBorder(new Color(255, 255, 255, 100), 2, true),
-                        BorderFactory.createEmptyBorder(13, 13, 13, 13)
-                    ));
-                }
-                public void mouseExited(MouseEvent e) {
-                    card.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
-                }
-            });
-            // Add to children too so clicking text works
-            preview.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    showEditor(note);
-                }
-            });
-
-            return card;
+            listContainer.revalidate();
+            listContainer.repaint();
         }
         
-        private Color getContrastColor(Color color) {
-            double y = (299 * color.getRed() + 587 * color.getGreen() + 114 * color.getBlue()) / 1000;
-            return y >= 128 ? Color.BLACK : Color.WHITE;
+        private JPanel createListItem(Note note) {
+            JPanel item = new JPanel(new BorderLayout());
+            item.setBackground(isDarkMode ? new Color(40, 40, 40) : new Color(245, 245, 245));
+            item.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
+            item.setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 15));
+            item.setCursor(new Cursor(Cursor.HAND_CURSOR));
+            
+            JLabel title = new JLabel(note.getTitle());
+            title.setFont(new Font("Segoe UI", Font.BOLD, 14));
+            title.setForeground(isDarkMode ? Color.WHITE : Color.BLACK);
+            
+            JLabel preview = new JLabel();
+            String content = note.getContent().replace("\n", " ");
+            if (content.length() > 30) content = content.substring(0, 30) + "...";
+            preview.setText(content);
+            preview.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            preview.setForeground(Color.GRAY);
+            
+            item.add(title, BorderLayout.NORTH);
+            item.add(preview, BorderLayout.CENTER);
+            
+            item.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    if (selectionListener != null) selectionListener.accept(note);
+                }
+                @Override
+                public void mouseEntered(MouseEvent e) {
+                    item.setBackground(isDarkMode ? new Color(50, 50, 50) : new Color(235, 235, 235));
+                }
+                @Override
+                public void mouseExited(MouseEvent e) {
+                    item.setBackground(isDarkMode ? new Color(40, 40, 40) : new Color(245, 245, 245));
+                }
+            });
+            
+            return item;
+        }
+        
+        public void updateTheme(boolean dark) {
+            Color bg = dark ? new Color(30, 30, 30) : new Color(255, 255, 255);
+            Color fg = dark ? Color.WHITE : Color.BLACK;
+            Color border = dark ? new Color(20, 20, 20) : new Color(220, 220, 220);
+            Color itemBg = dark ? new Color(40, 40, 40) : new Color(245, 245, 245);
+            
+            setBackground(bg);
+            setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, border));
+            
+            // Update Header (North)
+            Component header = ((BorderLayout)getLayout()).getLayoutComponent(BorderLayout.NORTH);
+            if (header instanceof JPanel) {
+                header.setBackground(bg);
+                titleLabel.setForeground(fg);
+                Component addBtn = ((BorderLayout)((JPanel)header).getLayout()).getLayoutComponent(BorderLayout.EAST);
+                if (addBtn instanceof JButton) {
+                    addBtn.setForeground(fg);
+                }
+            }
+            
+            // Update Center Panel
+            Component center = ((BorderLayout)getLayout()).getLayoutComponent(BorderLayout.CENTER);
+            if (center instanceof JPanel) {
+                center.setBackground(bg);
+                
+                Component searchWrapper = ((BorderLayout)((JPanel)center).getLayout()).getLayoutComponent(BorderLayout.NORTH);
+                if (searchWrapper instanceof JPanel) {
+                    searchWrapper.setBackground(bg);
+                    searchField.setBackground(dark ? new Color(45, 45, 45) : new Color(240, 240, 240));
+                    searchField.setForeground(fg);
+                    searchField.setCaretColor(fg);
+                    searchField.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(dark ? new Color(45, 45, 45) : new Color(240, 240, 240), 5),
+                        BorderFactory.createEmptyBorder(5, 10, 5, 10)
+                    ));
+                }
+                
+                listContainer.setBackground(bg);
+                
+                Component scroll = ((BorderLayout)((JPanel)center).getLayout()).getLayoutComponent(BorderLayout.CENTER);
+                if (scroll instanceof JScrollPane) {
+                    ((JScrollPane)scroll).getVerticalScrollBar().setUI(new ModernScrollBarUI(dark));
+                }
+                
+                for (Component c : listContainer.getComponents()) {
+                    if (c instanceof JPanel) {
+                        c.setBackground(itemBg);
+                        Component title = ((BorderLayout)((JPanel)c).getLayout()).getLayoutComponent(BorderLayout.NORTH);
+                        if (title instanceof JLabel) title.setForeground(fg);
+                    }
+                }
+            }
+            repaint();
         }
     }
 
     private void showNewNoteDialog() {
-        JDialog dialog = new JDialog(this, "New Note", true);
-        dialog.setSize(400, 300);
-        dialog.setLocationRelativeTo(this);
-        dialog.setLayout(new BorderLayout());
-        dialog.getContentPane().setBackground(new Color(30, 30, 30));
+        // Simplified creation for this UI
+        Note newNote = new Note(0, "New Note", "", new Date(), "#121212", "Segoe UI", currentCategory);
+        noteDAO.addNote(newNote);
+        noteListPanel.refreshNotes();
+        editorPanel.setNote(newNote);
+    }
 
-        JPanel form = new JPanel(new GridLayout(0, 1, 10, 10));
-        form.setBackground(new Color(30, 30, 30));
-        form.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-
-        JLabel l1 = new JLabel("Choose Background:");
-        l1.setForeground(Color.WHITE);
-        JComboBox<String> colorCombo = new JComboBox<>(new String[]{"Dark (#121212)", "Red (#5c1a1a)", "Blue (#1a2f5c)", "Green (#1a5c2f)", "Purple (#4a1a5c)"});
+    private void showSettingsDialog() {
+        JDialog settingsDialog = new JDialog(this, "Settings", true);
+        settingsDialog.setSize(400, 300);
+        settingsDialog.setLocationRelativeTo(this);
+        settingsDialog.setLayout(new BorderLayout());
         
-        JLabel l2 = new JLabel("Choose Font Style:");
-        l2.setForeground(Color.WHITE);
-        JComboBox<String> fontCombo = new JComboBox<>(new String[]{"Arial", "Times New Roman", "Courier New", "Segoe UI", "Verdana"});
+        Color bg = isDarkMode ? new Color(45, 45, 45) : new Color(240, 240, 240);
+        Color fg = isDarkMode ? Color.WHITE : Color.BLACK;
+        
+        settingsDialog.getContentPane().setBackground(bg);
 
-        form.add(l1);
-        form.add(colorCombo);
-        form.add(l2);
-        form.add(fontCombo);
+        JPanel content = new JPanel();
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        content.setOpaque(false);
+        content.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
 
-        JButton createBtn = new ModernButton("Create Note", new Color(100, 149, 237), new Color(120, 169, 255));
-        createBtn.addActionListener(e -> {
-            String bgSelection = (String) colorCombo.getSelectedItem();
-            String bgHex = bgSelection.substring(bgSelection.indexOf("(") + 1, bgSelection.indexOf(")"));
-            String font = (String) fontCombo.getSelectedItem();
-            
-            Note newNote = new Note(0, "New Note", "", new Date(), bgHex, font);
-            
-            dialog.dispose();
-            showEditor(newNote);
+        JLabel title = new JLabel("Settings");
+        title.setFont(new Font("Segoe UI", Font.BOLD, 20));
+        title.setForeground(fg);
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(title);
+        content.add(Box.createVerticalStrut(20));
+
+        JCheckBox darkMode = new JCheckBox("Dark Mode");
+        darkMode.setSelected(isDarkMode);
+        darkMode.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        darkMode.setForeground(fg);
+        darkMode.setOpaque(false);
+        darkMode.setAlignmentX(Component.LEFT_ALIGNMENT);
+        darkMode.addActionListener(e -> {
+            applyTheme(darkMode.isSelected());
+            Color newBg = isDarkMode ? new Color(45, 45, 45) : new Color(240, 240, 240);
+            Color newFg = isDarkMode ? Color.WHITE : Color.BLACK;
+            settingsDialog.getContentPane().setBackground(newBg);
+            title.setForeground(newFg);
+            darkMode.setForeground(newFg);
         });
+        content.add(darkMode);
+        
+        content.add(Box.createVerticalStrut(10));
+        
+        JLabel version = new JLabel("Version 1.0.0");
+        version.setFont(new Font("Segoe UI", Font.ITALIC, 12));
+        version.setForeground(Color.GRAY);
+        version.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(version);
 
-        dialog.add(form, BorderLayout.CENTER);
-        dialog.add(createBtn, BorderLayout.SOUTH);
-        dialog.setVisible(true);
+        settingsDialog.add(content, BorderLayout.CENTER);
+        
+        JButton closeBtn = new JButton("Close");
+        closeBtn.addActionListener(e -> settingsDialog.dispose());
+        JPanel btnPanel = new JPanel();
+        btnPanel.setOpaque(false);
+        btnPanel.add(closeBtn);
+        settingsDialog.add(btnPanel, BorderLayout.SOUTH);
+
+        settingsDialog.setVisible(true);
     }
 
     // --- Editor Panel ---
@@ -400,12 +558,10 @@ public class NotesApp extends JFrame {
         private JTextField titleField;
         private JTextArea textArea;
         private Note currentNote;
-        private boolean isNew;
         
         // Drawing components
         private DrawingPanel drawingPanel;
         private JPanel contentContainer;
-        private CardLayout contentLayout;
         private Tool currentTool = Tool.PEN;
         private int brushSize = 5;
         
@@ -413,25 +569,24 @@ public class NotesApp extends JFrame {
 
         public EditorPanel() {
             setLayout(new BorderLayout());
+            setBackground(new Color(18, 18, 18)); // Darkest for editor
             
             // Top Bar
             JPanel topBar = new JPanel(new BorderLayout());
             topBar.setOpaque(false);
-            topBar.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            topBar.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
             
-            JButton backBtn = new ModernButton("← Back", new Color(60, 60, 60), new Color(80, 80, 80));
-            backBtn.addActionListener(e -> {
-                saveNote(); // Auto-save on back
-                showHome();
-            });
+            // Date Label (Placeholder)
+            JLabel dateLabel = new JLabel("Today");
+            dateLabel.setForeground(Color.GRAY);
+            topBar.add(dateLabel, BorderLayout.WEST);
             
-            JButton saveBtn = new ModernButton("Save", new Color(60, 60, 60), new Color(80, 80, 80));
-            saveBtn.addActionListener(e -> {
-                saveNote();
-                JOptionPane.showMessageDialog(this, "Saved!");
-            });
-
-            JButton drawToggleBtn = new ModernButton("Draw", new Color(60, 60, 60), new Color(80, 80, 80));
+            // Tools
+            JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            tools.setOpaque(false);
+            
+            JButton drawToggleBtn = new JButton("Draw");
+            styleToolbarButton(drawToggleBtn);
             drawToggleBtn.addActionListener(e -> {
                 boolean isDrawing = !drawingPanel.isVisible();
                 drawingPanel.setVisible(isDrawing);
@@ -439,14 +594,34 @@ public class NotesApp extends JFrame {
                 contentContainer.revalidate();
                 contentContainer.repaint();
             });
+            
+            JButton saveBtn = new JButton("Save");
+            styleToolbarButton(saveBtn);
+            saveBtn.addActionListener(e -> {
+                saveNote();
+                noteListPanel.refreshNotes(); // Refresh list to show updates
+            });
+            
+            JButton deleteBtn = new JButton("Delete");
+            styleToolbarButton(deleteBtn);
+            deleteBtn.setForeground(new Color(255, 100, 100));
+            deleteBtn.addActionListener(e -> {
+                if (currentNote != null) {
+                    int choice = JOptionPane.showConfirmDialog(NotesApp.this, "Delete this note?", "Confirm", JOptionPane.YES_NO_OPTION);
+                    if (choice == JOptionPane.YES_OPTION) {
+                        noteDAO.deleteNote(currentNote.getId());
+                        currentNote = null;
+                        titleField.setText("");
+                        textArea.setText("");
+                        noteListPanel.refreshNotes();
+                    }
+                }
+            });
 
-            JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            rightButtons.setOpaque(false);
-            rightButtons.add(drawToggleBtn);
-            rightButtons.add(saveBtn);
-
-            topBar.add(backBtn, BorderLayout.WEST);
-            topBar.add(rightButtons, BorderLayout.EAST);
+            tools.add(drawToggleBtn);
+            tools.add(saveBtn);
+            tools.add(deleteBtn);
+            topBar.add(tools, BorderLayout.EAST);
             
             add(topBar, BorderLayout.NORTH);
 
@@ -464,20 +639,23 @@ public class NotesApp extends JFrame {
             titleField.setBorder(null);
             titleField.setOpaque(false);
             titleField.setForeground(Color.WHITE);
-            titleField.setFont(new Font("Segoe UI", Font.BOLD, 24));
+            titleField.setFont(new Font("Segoe UI", Font.BOLD, 32));
+            titleField.setCaretColor(Color.WHITE);
             
             textArea = new JTextArea();
             textArea.setBorder(null);
             textArea.setOpaque(false);
-            textArea.setForeground(Color.WHITE);
+            textArea.setForeground(new Color(220, 220, 220));
+            textArea.setFont(new Font("Segoe UI", Font.PLAIN, 16));
             textArea.setLineWrap(true);
             textArea.setWrapStyleWord(true);
+            textArea.setCaretColor(Color.WHITE);
             
             JScrollPane scroll = new JScrollPane(textArea);
             scroll.setBorder(null);
             scroll.setOpaque(false);
             scroll.getViewport().setOpaque(false);
-            scroll.getVerticalScrollBar().setUI(new ModernScrollBarUI());
+            scroll.getVerticalScrollBar().setUI(new ModernScrollBarUI(isDarkMode));
 
             textPanel.add(titleField, BorderLayout.NORTH);
             textPanel.add(scroll, BorderLayout.CENTER);
@@ -493,31 +671,25 @@ public class NotesApp extends JFrame {
             
             add(contentContainer, BorderLayout.CENTER);
         }
+        
+        private void styleToolbarButton(JButton btn) {
+            btn.setContentAreaFilled(false);
+            btn.setBorderPainted(false);
+            btn.setFocusPainted(false);
+            btn.setForeground(Color.GRAY);
+            btn.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+            btn.addMouseListener(new MouseAdapter() {
+                public void mouseEntered(MouseEvent e) { btn.setForeground(isDarkMode ? Color.WHITE : Color.BLACK); }
+                public void mouseExited(MouseEvent e) { btn.setForeground(Color.GRAY); }
+            });
+        }
 
         public void setNote(Note note) {
             this.currentNote = note;
-            this.isNew = (note.getId() == 0);
             
             titleField.setText(note.getTitle());
             textArea.setText(note.getContent());
-            
-            // Apply styles
-            try {
-                Color bg = Color.decode(note.getBackgroundColor());
-                setBackground(bg);
-                // Adjust text color based on background
-                Color fg = getContrastColor(bg);
-                titleField.setForeground(fg);
-                titleField.setCaretColor(fg);
-                textArea.setForeground(fg);
-                textArea.setCaretColor(fg);
-            } catch (Exception e) {
-                setBackground(new Color(18, 18, 18));
-            }
-            
-            Font f = new Font(note.getFontFamily(), Font.PLAIN, 16);
-            textArea.setFont(f);
-            titleField.setFont(new Font(note.getFontFamily(), Font.BOLD, 24));
             
             // Reset drawing for new note (or load if we supported it)
             drawingPanel.clear();
@@ -533,23 +705,26 @@ public class NotesApp extends JFrame {
             currentNote.setContent(textArea.getText());
             currentNote.setLastModified(new Date());
             
-            if (isNew) {
-                noteDAO.addNote(currentNote);
-                isNew = false; 
-            } else {
-                noteDAO.updateNote(currentNote);
-            }
+            noteDAO.updateNote(currentNote);
         }
-        
-        private Color getContrastColor(Color color) {
-            double y = (299 * color.getRed() + 587 * color.getGreen() + 114 * color.getBlue()) / 1000;
-            return y >= 128 ? Color.BLACK : Color.WHITE;
+
+        public void updateTheme(boolean dark) {
+            Color bg = dark ? new Color(18, 18, 18) : new Color(255, 255, 255);
+            Color fg = dark ? Color.WHITE : Color.BLACK;
+            Color textFg = dark ? new Color(220, 220, 220) : Color.BLACK;
+            
+            setBackground(bg);
+            titleField.setForeground(fg);
+            titleField.setCaretColor(fg);
+            textArea.setForeground(textFg);
+            textArea.setCaretColor(fg);
+            repaint();
         }
 
         // --- DrawingPanel inner class ---
         private class DrawingPanel extends JPanel {
             private BufferedImage canvas;
-            private Color currentColor = Color.BLACK;
+            private Color currentColor = Color.WHITE; // Default white for dark mode
             private int prevX = -1, prevY = -1;
 
             public DrawingPanel() {
@@ -591,7 +766,7 @@ public class NotesApp extends JFrame {
 
                 // --- Bottom Toolbar (Tools) ---
                 JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT));
-                toolbar.setBackground(new Color(240, 240, 240));
+                toolbar.setBackground(new Color(40, 40, 40));
                 
                 JButton penBtn = new JButton("Pen");
                 JButton eraserBtn = new JButton("Eraser");
@@ -600,6 +775,7 @@ public class NotesApp extends JFrame {
                 JButton clearBtn = new JButton("Clear");
                 
                 JSlider sizeSlider = new JSlider(1, 50, brushSize);
+                sizeSlider.setBackground(new Color(40, 40, 40));
                 sizeSlider.setPreferredSize(new Dimension(100, 20));
                 sizeSlider.addChangeListener(e -> brushSize = sizeSlider.getValue());
 
@@ -749,66 +925,20 @@ public class NotesApp extends JFrame {
         }
     }
 
-
-
-    // --- Custom UI Components ---
-
-    // 1. Modern Button with Hover Animation
-    private static class ModernButton extends JButton {
-        private Color normalColor;
-        private Color hoverColor;
-        private boolean isHovered = false;
-
-        public ModernButton(String text, Color normal, Color hover) {
-            super(text);
-            this.normalColor = normal;
-            this.hoverColor = hover;
-            setContentAreaFilled(false);
-            setFocusPainted(false);
-            setBorderPainted(false);
-            setForeground(Color.WHITE);
-            setFont(new Font("Segoe UI", Font.BOLD, 14));
-            setCursor(new Cursor(Cursor.HAND_CURSOR));
-            
-            addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseEntered(MouseEvent e) {
-                    isHovered = true;
-                    repaint();
-                }
-                @Override
-                public void mouseExited(MouseEvent e) {
-                    isHovered = false;
-                    repaint();
-                }
-            });
-        }
-
-        @Override
-        protected void paintComponent(Graphics g) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            
-            if (isHovered) {
-                g2.setColor(hoverColor);
-            } else {
-                g2.setColor(normalColor);
-            }
-            
-            // More rounded corners (pill shape if height is small enough, or just rounded rect)
-            g2.fill(new RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 20, 20));
-            
-            super.paintComponent(g);
-            g2.dispose();
-        }
-    }
-
     // 2. Modern Scroll Bar UI
     private static class ModernScrollBarUI extends BasicScrollBarUI {
+        private Color thumb;
+        private Color track;
+
+        public ModernScrollBarUI(boolean dark) {
+            this.thumb = dark ? new Color(80, 80, 80) : new Color(200, 200, 200);
+            this.track = dark ? new Color(30, 30, 30) : new Color(240, 240, 240);
+        }
+
         @Override
         protected void configureScrollBarColors() {
-            this.thumbColor = new Color(80, 80, 80);
-            this.trackColor = new Color(30, 30, 30);
+            this.thumbColor = thumb;
+            this.trackColor = track;
         }
 
         @Override
@@ -843,6 +973,14 @@ public class NotesApp extends JFrame {
             g.setColor(trackColor);
             g.fillRect(trackBounds.x, trackBounds.y, trackBounds.width, trackBounds.height);
         }
+    }
+
+    private void applyTheme(boolean dark) {
+        this.isDarkMode = dark;
+        sidebar.updateTheme(dark);
+        noteListPanel.updateTheme(dark);
+        editorPanel.updateTheme(dark);
+        repaint();
     }
 
     public static void main(String[] args) {
