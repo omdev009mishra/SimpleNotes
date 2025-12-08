@@ -383,9 +383,11 @@ public class NotesApp extends JFrame {
 
         private void updateList(List<Note> notesToShow) {
             listContainer.removeAll();
-            for (Note n : notesToShow) {
-                listContainer.add(createListItem(n));
-                listContainer.add(Box.createVerticalStrut(5)); // Spacing
+            if (notesToShow != null && !notesToShow.isEmpty()) {
+                for (Note n : notesToShow) {
+                    listContainer.add(createListItem(n));
+                    listContainer.add(Box.createVerticalStrut(5)); // Spacing
+                }
             }
             listContainer.revalidate();
             listContainer.repaint();
@@ -490,6 +492,17 @@ public class NotesApp extends JFrame {
         // Simplified creation for this UI
         Note newNote = new Note(0, "New Note", "", new Date(), "#121212", "Segoe UI", currentCategory);
         noteDAO.addNote(newNote);
+        
+        // Get the note with its ID from database
+        try {
+            List<Note> allNotes = noteDAO.getAllNotes();
+            if (!allNotes.isEmpty()) {
+                newNote = allNotes.get(allNotes.size() - 1); // Get the last added note
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        
         noteListPanel.refreshNotes();
         editorPanel.setNote(newNote);
     }
@@ -558,6 +571,10 @@ public class NotesApp extends JFrame {
         private JTextField titleField;
         private JTextArea textArea;
         private Note currentNote;
+        private JLabel dateLabel;
+        private JLabel charCountLabel;
+        private JPanel emptyStatePanel;
+        private JPanel editorContentPanel;
         
         // Drawing components
         private DrawingPanel drawingPanel;
@@ -571,15 +588,136 @@ public class NotesApp extends JFrame {
             setLayout(new BorderLayout());
             setBackground(new Color(18, 18, 18)); // Darkest for editor
             
+            // Create empty state panel
+            createEmptyStatePanel();
+            
+            // Create editor content panel
+            createEditorContentPanel();
+            
+            // Start with empty state
+            add(emptyStatePanel, BorderLayout.CENTER);
+        }
+        
+        private void createEmptyStatePanel() {
+            emptyStatePanel = new JPanel(new GridBagLayout());
+            emptyStatePanel.setOpaque(false);
+            
+            JPanel centerPanel = new JPanel();
+            centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
+            centerPanel.setOpaque(false);
+            
+            JLabel emptyLabel = new JLabel("No note selected");
+            emptyLabel.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+            emptyLabel.setForeground(Color.GRAY);
+            emptyLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+            
+            JLabel hintLabel = new JLabel("Create a new note to get started");
+            hintLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            hintLabel.setForeground(Color.GRAY);
+            hintLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+            
+            JButton createBtn = new JButton("+");
+            createBtn.setFont(new Font("Segoe UI", Font.BOLD, 48));
+            createBtn.setForeground(isDarkMode ? Color.WHITE : Color.BLACK);
+            createBtn.setContentAreaFilled(false);
+            createBtn.setBorderPainted(false);
+            createBtn.setFocusPainted(false);
+            createBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+            createBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
+            createBtn.addActionListener(e -> showCategorySelectionDialog());
+            createBtn.addMouseListener(new MouseAdapter() {
+                public void mouseEntered(MouseEvent e) { 
+                    createBtn.setForeground(new Color(100, 150, 255)); 
+                }
+                public void mouseExited(MouseEvent e) { 
+                    createBtn.setForeground(isDarkMode ? Color.WHITE : Color.BLACK); 
+                }
+            });
+            
+            centerPanel.add(emptyLabel);
+            centerPanel.add(Box.createVerticalStrut(10));
+            centerPanel.add(hintLabel);
+            centerPanel.add(Box.createVerticalStrut(30));
+            centerPanel.add(createBtn);
+            
+            emptyStatePanel.add(centerPanel);
+        }
+        
+        private void showCategorySelectionDialog() {
+            JDialog categoryDialog = new JDialog(NotesApp.this, "Select Notebook", true);
+            categoryDialog.setSize(300, 250);
+            categoryDialog.setLocationRelativeTo(NotesApp.this);
+            categoryDialog.setLayout(new BorderLayout());
+            
+            Color bg = isDarkMode ? new Color(45, 45, 45) : new Color(240, 240, 240);
+            Color fg = isDarkMode ? Color.WHITE : Color.BLACK;
+            
+            categoryDialog.getContentPane().setBackground(bg);
+            
+            JPanel content = new JPanel();
+            content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+            content.setOpaque(false);
+            content.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+            
+            JLabel title = new JLabel("Choose a notebook for your note:");
+            title.setFont(new Font("Segoe UI", Font.BOLD, 14));
+            title.setForeground(fg);
+            title.setAlignmentX(Component.CENTER_ALIGNMENT);
+            content.add(title);
+            content.add(Box.createVerticalStrut(20));
+            
+            String[] categories = {"Personal", "Work", "Ideas"};
+            for (String cat : categories) {
+                JButton catBtn = new JButton(cat);
+                catBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
+                catBtn.setMaximumSize(new Dimension(200, 40));
+                catBtn.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+                catBtn.setBackground(isDarkMode ? new Color(60, 60, 60) : new Color(220, 220, 220));
+                catBtn.setForeground(fg);
+                catBtn.setFocusPainted(false);
+                catBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+                catBtn.addActionListener(e -> {
+                    createNoteInCategory(cat);
+                    categoryDialog.dispose();
+                });
+                content.add(catBtn);
+                content.add(Box.createVerticalStrut(10));
+            }
+            
+            categoryDialog.add(content, BorderLayout.CENTER);
+            categoryDialog.setVisible(true);
+        }
+        
+        private void createNoteInCategory(String category) {
+            currentCategory = category;
+            showNewNoteDialog();
+        }
+        
+        private void createEditorContentPanel() {
+            editorContentPanel = new JPanel(new BorderLayout());
+            editorContentPanel.setOpaque(false);
+            
             // Top Bar
             JPanel topBar = new JPanel(new BorderLayout());
             topBar.setOpaque(false);
             topBar.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
             
-            // Date Label (Placeholder)
-            JLabel dateLabel = new JLabel("Today");
+            // Info Panel (Date & Char Count)
+            JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 0));
+            infoPanel.setOpaque(false);
+            
+            dateLabel = new JLabel("Today");
             dateLabel.setForeground(Color.GRAY);
-            topBar.add(dateLabel, BorderLayout.WEST);
+            dateLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            
+            charCountLabel = new JLabel("0 characters");
+            charCountLabel.setForeground(Color.GRAY);
+            charCountLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            
+            infoPanel.add(dateLabel);
+            infoPanel.add(charCountLabel);
+            
+            topBar.add(infoPanel, BorderLayout.WEST);
             
             // Tools
             JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -623,7 +761,7 @@ public class NotesApp extends JFrame {
             tools.add(deleteBtn);
             topBar.add(tools, BorderLayout.EAST);
             
-            add(topBar, BorderLayout.NORTH);
+            editorContentPanel.add(topBar, BorderLayout.NORTH);
 
             // Content Container (OverlayLayout for Text vs Draw)
             contentContainer = new JPanel();
@@ -642,7 +780,20 @@ public class NotesApp extends JFrame {
             titleField.setFont(new Font("Segoe UI", Font.BOLD, 32));
             titleField.setCaretColor(Color.WHITE);
             
-            textArea = new JTextArea();
+            textArea = new JTextArea() {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    if (getText().isEmpty()) {
+                        Graphics2D g2 = (Graphics2D) g.create();
+                        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        g2.setColor(Color.GRAY);
+                        g2.setFont(getFont().deriveFont(Font.ITALIC));
+                        g2.drawString("Type here...", getInsets().left, g.getFontMetrics().getAscent() + getInsets().top);
+                        g2.dispose();
+                    }
+                }
+            };
             textArea.setBorder(null);
             textArea.setOpaque(false);
             textArea.setForeground(new Color(220, 220, 220));
@@ -650,6 +801,11 @@ public class NotesApp extends JFrame {
             textArea.setLineWrap(true);
             textArea.setWrapStyleWord(true);
             textArea.setCaretColor(Color.WHITE);
+            textArea.getDocument().addDocumentListener(new DocumentListener() {
+                public void insertUpdate(DocumentEvent e) { updateStats(); }
+                public void removeUpdate(DocumentEvent e) { updateStats(); }
+                public void changedUpdate(DocumentEvent e) { updateStats(); }
+            });
             
             JScrollPane scroll = new JScrollPane(textArea);
             scroll.setBorder(null);
@@ -669,7 +825,7 @@ public class NotesApp extends JFrame {
             contentContainer.add(drawingPanel);
             contentContainer.add(textPanel);
             
-            add(contentContainer, BorderLayout.CENTER);
+            editorContentPanel.add(contentContainer, BorderLayout.CENTER);
         }
         
         private void styleToolbarButton(JButton btn) {
@@ -685,14 +841,46 @@ public class NotesApp extends JFrame {
             });
         }
 
+        private void updateStats() {
+            // Update character count
+            int charCount = textArea.getText().length();
+            charCountLabel.setText(charCount + " character" + (charCount != 1 ? "s" : ""));
+            
+            // Update date
+            if (currentNote != null) {
+                SimpleDateFormat sdf = new SimpleDateFormat("MMM dd, yyyy");
+                dateLabel.setText(sdf.format(currentNote.getLastModified()));
+            } else {
+                dateLabel.setText("Today");
+            }
+        }
+
         public void setNote(Note note) {
             this.currentNote = note;
             
-            titleField.setText(note.getTitle());
-            textArea.setText(note.getContent());
-            
-            // Reset drawing for new note (or load if we supported it)
-            drawingPanel.clear();
+            if (note != null) {
+                // Switch to editor view
+                remove(emptyStatePanel);
+                add(editorContentPanel, BorderLayout.CENTER);
+                
+                titleField.setText(note.getTitle());
+                textArea.setText(note.getContent());
+                
+                // Update stats
+                updateStats();
+                
+                // Reset drawing for new note (or load if we supported it)
+                drawingPanel.clear();
+                
+                revalidate();
+                repaint();
+            } else {
+                // Switch to empty state
+                remove(editorContentPanel);
+                add(emptyStatePanel, BorderLayout.CENTER);
+                revalidate();
+                repaint();
+            }
         }
         
         private void saveNote() {
@@ -718,6 +906,20 @@ public class NotesApp extends JFrame {
             titleField.setCaretColor(fg);
             textArea.setForeground(textFg);
             textArea.setCaretColor(fg);
+            dateLabel.setForeground(Color.GRAY);
+            charCountLabel.setForeground(Color.GRAY);
+            
+            // Update empty state panel colors
+            for (Component c : emptyStatePanel.getComponents()) {
+                if (c instanceof JPanel) {
+                    for (Component inner : ((JPanel)c).getComponents()) {
+                        if (inner instanceof JLabel) {
+                            ((JLabel)inner).setForeground(Color.GRAY);
+                        }
+                    }
+                }
+            }
+            
             repaint();
         }
 
