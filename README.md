@@ -109,4 +109,4 @@ Feel free to fork this project and submit pull requests for any improvements!
 
 ---
 
-Built with ❤️ by omdev009mishra
+Built by omdev009mishra and rituvashishth
